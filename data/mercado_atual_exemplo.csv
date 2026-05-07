@@ -1,0 +1,11 @@
+atleta_id,apelido,posicao_id,preco,status_id,media_num,casa
+1,Alisson,1,5.5,7,7.5,1
+2,Thiago Silva,3,7.0,7,6.5,0
+3,Neymar,5,15.0,7,13.0,1
+4,Vinicius Jr,5,14.0,7,11.8,0
+5,Rodrygo,5,10.0,7,8.6,1
+6,Lucas Paqueta,4,8.5,7,7.2,0
+7,Sasha,2,6.0,7,5.5,1
+8,Marquinhos,3,6.5,7,6.0,0
+9,Moises,2,5.5,7,5.0,1
+10,Matheus Martins,5,7.0,6,4.5,0
