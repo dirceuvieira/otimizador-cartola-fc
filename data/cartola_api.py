@@ -160,6 +160,9 @@ class CartolaAPI:
                             "preco": preco,
                             "status_id": status_id,
                             "media_num": media_num,
+                            "clube_id": int(atleta_info.get("clube_id", 0) or 0),
+                            "clube_nome": str(atleta_info.get("clube", {}).get("nome", "") or "").strip(),
+                            "rodada_id": int(atleta_info.get("rodada_id", 0) or 0),
                         }
 
                         # Transformar scouts em colunas
@@ -200,6 +203,9 @@ class CartolaAPI:
                             "preco": preco,
                             "status_id": status_id,
                             "media_num": media_num,
+                            "clube_id": int(atleta_info.get("clube_id", 0) or 0),
+                            "clube_nome": str(atleta_info.get("clube", {}).get("nome", "") or "").strip(),
+                            "rodada_id": int(atleta_info.get("rodada_id", 0) or 0),
                         }
 
                         # Transformar scouts em colunas
