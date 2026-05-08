@@ -27,7 +27,7 @@ class SupabaseDB(BaseConnection):
         Retorna um DataFrame com as colunas definidas na seção 3 do MD.
         """
         response = self.client.table('atletas').select(
-            'atleta_id, apelido, posicao_id, preco, status_id, media_num'
+            'atleta_id, apelido, posicao_id, preco, status_id, media_num, clube_nome, confronto'
         ).eq('status_id', 7).execute()
         df_atletas = pd.DataFrame(response.data)
         
@@ -43,6 +43,8 @@ class SupabaseDB(BaseConnection):
         
         # Preencher NaN com 0
         df['xp_previsto'] = df['xp_previsto'].fillna(0.0)
+        df['clube_nome'] = df['clube_nome'].fillna('')
+        df['confronto'] = df['confronto'].fillna('')
         
         return df
 
@@ -79,7 +81,7 @@ class SupabaseDB(BaseConnection):
         Retorna um DataFrame com todos os jogadores do mercado.
         """
         response = self.client.table('atletas').select(
-            'atleta_id, apelido, posicao_id, preco, status_id, media_num'
+            'atleta_id, apelido, posicao_id, preco, status_id, media_num, clube_nome, confronto'
         ).execute()
         df_atletas = pd.DataFrame(response.data)
         
@@ -94,6 +96,8 @@ class SupabaseDB(BaseConnection):
             df['xp_previsto'] = 0.0
         
         df['xp_previsto'] = df['xp_previsto'].fillna(0.0)
+        df['clube_nome'] = df['clube_nome'].fillna('')
+        df['confronto'] = df['confronto'].fillna('')
         return df
 
 # Para usar: conn = st.connection("supabase_db", type=SupabaseDB)

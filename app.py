@@ -122,15 +122,17 @@ if st.session_state['df_atletas'] is not None and len(st.session_state['df_atlet
     df_display = df_display.sort_values('xp_previsto', ascending=False)
     
     st.dataframe(
-        df_display[['apelido', 'posicao_nome', 'preco', 'media_num', 'xp_previsto']],
+        df_display[['apelido', 'clube_nome', 'confronto', 'posicao_nome', 'preco', 'media_num', 'xp_previsto']],
         use_container_width=True,
         hide_index=True,
         column_config={
-            "apelido": st.column_config.TextColumn("🎯 Jogador"),
+            "apelido": st.column_config.TextColumn("Atleta"),
+            "clube_nome": st.column_config.TextColumn("Clube", width="small"),
+            "confronto": st.column_config.TextColumn("Próximo Jogo", width="small"),
             "posicao_nome": st.column_config.TextColumn("📍 Posição"),
-            "preco": st.column_config.NumberColumn("💰 Preço", format="R$ %.2f"),
+            "preco": st.column_config.NumberColumn("Preço", format="R$ %.2f"),
             "media_num": st.column_config.NumberColumn("📈 Média", format="%.2f"),
-            "xp_previsto": st.column_config.NumberColumn("⭐ XP Previsto", format="%.2f")
+            "xp_previsto": st.column_config.NumberColumn("xP", format="%.2f")
         }
     )
     
@@ -168,15 +170,17 @@ if st.session_state['df_atletas'] is not None and len(st.session_state['df_atlet
                 escalacao_display['posicao_nome'] = escalacao_display['posicao_id'].apply(map_posicao)
                 escalacao_display['capitao_emoji'] = escalacao_display['capitao'].apply(lambda x: '⭐' if x else '')
                 st.dataframe(
-                    escalacao_display[['capitao_emoji', 'apelido', 'posicao_nome', 'preco', 'xp_previsto']],
+                    escalacao_display[['capitao_emoji', 'apelido', 'clube_nome', 'confronto', 'posicao_nome', 'preco', 'xp_previsto']],
                     use_container_width=True,
                     hide_index=True,
                     column_config={
                         "capitao_emoji": st.column_config.TextColumn("Capitão"),
-                        "apelido": st.column_config.TextColumn("🎯 Jogador"),
+                        "apelido": st.column_config.TextColumn("Atleta"),
+                        "clube_nome": st.column_config.TextColumn("Clube", width="small"),
+                        "confronto": st.column_config.TextColumn("Próximo Jogo", width="small"),
                         "posicao_nome": st.column_config.TextColumn("📍 Posição"),
-                        "preco": st.column_config.NumberColumn("💰 Preço", format="R$ %.2f"),
-                        "xp_previsto": st.column_config.NumberColumn("⭐ XP Previsto", format="%.2f")
+                        "preco": st.column_config.NumberColumn("Preço", format="R$ %.2f"),
+                        "xp_previsto": st.column_config.NumberColumn("xP", format="%.2f")
                     }
                 )
                 

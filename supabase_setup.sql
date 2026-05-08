@@ -8,7 +8,6 @@ CREATE TABLE IF NOT EXISTS atletas (
     posicao_id INTEGER NOT NULL,
     preco NUMERIC(10,2) NOT NULL DEFAULT 0,
     status_id INTEGER NOT NULL DEFAULT 1,
-    xp_previsto NUMERIC(10,2),
     media_num NUMERIC(10,2) DEFAULT 0,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -25,6 +24,8 @@ CREATE TABLE IF NOT EXISTS previsoes (
 );
 
 -- Adicionar colunas se não existirem (para tabelas já criadas)
+ALTER TABLE atletas ADD COLUMN IF NOT EXISTS clube_nome TEXT;
+ALTER TABLE atletas ADD COLUMN IF NOT EXISTS confronto TEXT;
 ALTER TABLE previsoes ADD COLUMN IF NOT EXISTS risco_atleta NUMERIC(10,2);
 ALTER TABLE previsoes ADD COLUMN IF NOT EXISTS timestamp_treino TIMESTAMP WITH TIME ZONE;
 

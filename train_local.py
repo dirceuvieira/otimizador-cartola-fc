@@ -368,7 +368,7 @@ def create_supabase_client():
 def upsert_athletes(client, df_market: pd.DataFrame) -> None:
     """Salva dados dos atletas do mercado na tabela atletas"""
     # Selecionar e preparar colunas necessárias
-    cols_to_upsert = ["atleta_id", "apelido", "posicao_id", "preco", "status_id", "media_num"]
+    cols_to_upsert = ["atleta_id", "apelido", "posicao_id", "preco", "status_id", "media_num", "clube_nome", "confronto"]
     
     # Verificar se todas as colunas existem
     existing_cols = [col for col in cols_to_upsert if col in df_market.columns]
@@ -380,6 +380,8 @@ def upsert_athletes(client, df_market: pd.DataFrame) -> None:
     df_athletes["status_id"] = df_athletes["status_id"].astype(int)
     df_athletes["preco"] = pd.to_numeric(df_athletes["preco"], errors="coerce").fillna(0)
     df_athletes["media_num"] = pd.to_numeric(df_athletes["media_num"], errors="coerce").fillna(0)
+    df_athletes["clube_nome"] = df_athletes["clube_nome"].fillna('')
+    df_athletes["confronto"] = df_athletes["confronto"].fillna('')
     
     # Converter para lista de dicts
     payload = df_athletes.to_dict(orient="records")

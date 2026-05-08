@@ -98,6 +98,8 @@ class CartolaAPI:
                     "posicao_id": atleta_info.get("posicao_id", 0),
                     "preco": atleta_info.get("preco_num", 0.0),
                     "status_id": atleta_info.get("status_id", 1),
+                    "clube_nome": atleta_info.get("clube", {}).get("nome", ""),
+                    "confronto": "",  # Será preenchido depois
                     "scouts": atleta_info.get("scout", {}),
                 }
                 AtletaSchema(**atleta_dict)  # Validar com Pydantic
@@ -279,6 +281,31 @@ class CartolaAPI:
 
             df = pd.DataFrame(rows)
 
+            # Obter mapeamento completo de clubes
+            try:
+                clube_map = CartolaAPI.get_clubes()
+                df['clube_nome'] = df['clube_id'].map(clube_map).fillna(df['clube_nome'])
+            except Exception as e:
+                print(f"[WARN] Erro ao mapear clubes: {e}")
+
+            # Criar mapeamento de clube_id para nome do clube (para compatibilidade)
+            clube_map_local = df.set_index('clube_id')['clube_nome'].drop_duplicates().to_dict()
+
+            # Obter confrontos da rodada atual
+            try:
+                df_partidas = CartolaAPI.get_partidas()
+                dict_confronto = {}
+                for _, row in df_partidas.iterrows():
+                    confronto = f"{row['clube_casa']} x {row['clube_visitante']}"
+                    dict_confronto[row['time_casa_id']] = confronto
+                    dict_confronto[row['time_visitante_id']] = confronto
+            except Exception as e:
+                print(f"[WARN] Erro ao obter confrontos: {e}")
+                dict_confronto = {}
+
+            # Adicionar coluna confronto
+            df['confronto'] = df['clube_id'].map(dict_confronto).fillna('')
+
             # Garantir tipos de dados corretos para colunas base
             base_dtypes = {
                 "atleta_id": "int64",
@@ -287,6 +314,9 @@ class CartolaAPI:
                 "preco": "float64",
                 "status_id": "int64",
                 "media_num": "float64",
+                "clube_id": "int64",
+                "clube_nome": "object",
+                "confronto": "object",
             }
             for col in base_dtypes:
                 if col in df.columns:
@@ -301,6 +331,33 @@ class CartolaAPI:
 
         except Exception as e:
             raise RuntimeError(f"Erro ao processar dados do mercado: {e}")
+
+    @staticmethod
+    def get_clubes() -> Dict[int, str]:
+        """
+        Busca dados dos clubes da API.
+        Retorna um dicionário mapeando clube_id para nome do clube.
+        """
+        try:
+            response = requests.get(
+                f"{CartolaAPI.BASE_URL}/clubes",
+                headers=CartolaAPI._get_headers(),
+                timeout=CartolaAPI.TIMEOUT
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            clube_map = {}
+            for clube_id, clube_info in data.items():
+                if isinstance(clube_info, dict):
+                    nome = clube_info.get("nome", "").strip()
+                    if nome:
+                        clube_map[int(clube_id)] = nome
+            return clube_map
+
+        except Exception as e:
+            print(f"[WARN] Erro ao buscar clubes: {e}")
+            return {}
 
     @staticmethod
     def get_partidas() -> pd.DataFrame:
