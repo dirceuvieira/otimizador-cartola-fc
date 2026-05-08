@@ -19,7 +19,7 @@ def map_posicao(posicao_id):
     return POSICAO_MAP.get(int(posicao_id), str(posicao_id))
 
 st.set_page_config(page_title="Cartola FC Optimizer", page_icon="⚽", layout="wide")
-st.title("⚽ Otimizador Cartola FC - Estilo Brasfoot")
+st.title("⚽ Mestre de Verdade - Cartola FC")
 
 # Inicializar session state
 if 'df_atletas' not in st.session_state:
