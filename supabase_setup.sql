@@ -18,14 +18,15 @@ CREATE TABLE IF NOT EXISTS atletas (
 CREATE TABLE IF NOT EXISTS previsoes (
     atleta_id INTEGER PRIMARY KEY,
     xp_previsto NUMERIC(10,2) NOT NULL,
+    risco_atleta NUMERIC(10,2),
+    timestamp_treino TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Índices para melhor performance
-CREATE INDEX IF NOT EXISTS idx_atletas_status_id ON atletas(status_id);
-CREATE INDEX IF NOT EXISTS idx_atletas_posicao_id ON atletas(posicao_id);
-CREATE INDEX IF NOT EXISTS idx_previsoes_atleta_id ON previsoes(atleta_id);
+-- Adicionar colunas se não existirem (para tabelas já criadas)
+ALTER TABLE previsoes ADD COLUMN IF NOT EXISTS risco_atleta NUMERIC(10,2);
+ALTER TABLE previsoes ADD COLUMN IF NOT EXISTS timestamp_treino TIMESTAMP WITH TIME ZONE;
 
 -- Políticas RLS (Row Level Security) - opcional, mas recomendado
 ALTER TABLE atletas ENABLE ROW LEVEL SECURITY;

@@ -36,9 +36,16 @@ def otimizar_escalacao(df, verba, esquema_tatico, modo):
     # Verificar orçamento
     total_preco = escalacao_df['preco'].sum()
     if total_preco <= verba:
+        # Após selecionar os 11 titulares, identificar o capitão
+        jogadores = escalacao_df[escalacao_df['posicao_id'] != 6]  # Excluir técnico
+        if not jogadores.empty:
+            capitao_idx = jogadores['xp_previsto'].idxmax()
+            escalacao_df['capitao'] = False
+            escalacao_df.loc[capitao_idx, 'capitao'] = True
         return escalacao_df
 
     # Ajuste guloso se orçamento estourar
+    # TODO: Migrar para PuLP na lógica de substituição gulosa para futura implementação de programação linear.
     escalacao_df = escalacao_df.sort_values('preco', ascending=False)
     for idx in escalacao_df.index:
         row = escalacao_df.loc[idx]
@@ -57,5 +64,12 @@ def otimizar_escalacao(df, verba, esquema_tatico, modo):
                 break
         if total_preco <= verba:
             break
+
+    # Após ajuste, identificar o capitão novamente
+    jogadores = escalacao_df[escalacao_df['posicao_id'] != 6]
+    if not jogadores.empty:
+        capitao_idx = jogadores['xp_previsto'].idxmax()
+        escalacao_df['capitao'] = False
+        escalacao_df.loc[capitao_idx, 'capitao'] = True
 
     return escalacao_df

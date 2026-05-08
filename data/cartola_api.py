@@ -3,6 +3,7 @@ import pandas as pd
 import json
 from pathlib import Path
 from typing import Dict, Any, Optional
+from .schemas import AtletaSchema
 
 
 class CartolaAPI:
@@ -60,6 +61,52 @@ class CartolaAPI:
             print(f"[WARN] Erro ao salvar backup: {e}")
 
     @staticmethod
+    def _load_backup() -> Optional[Dict[str, Any]]:
+        """Carrega backup local se disponível."""
+        try:
+            if CartolaAPI.BACKUP_PATH.exists():
+                with open(CartolaAPI.BACKUP_PATH, "r", encoding="utf-8") as f:
+                    return json.load(f)
+        except Exception as e:
+            print(f"[WARN] Erro ao carregar backup: {e}")
+        return None
+
+    @staticmethod
+    def _validate_atletas_data(data: Dict[str, Any]) -> bool:
+        """Valida os dados dos atletas usando Pydantic."""
+        try:
+            if isinstance(data, dict) and "atletas" in data:
+                atletas_data = data["atletas"]
+            elif isinstance(data, list):
+                atletas_data = data
+            else:
+                return False
+
+            # Validar uma amostra de atletas (primeiros 10) para eficiência
+            sample = []
+            if isinstance(atletas_data, dict):
+                sample = list(atletas_data.values())[:10]
+            elif isinstance(atletas_data, list):
+                sample = atletas_data[:10]
+
+            for atleta_info in sample:
+                if not isinstance(atleta_info, dict):
+                    continue
+                atleta_dict = {
+                    "atleta_id": atleta_info.get("atleta_id") or atleta_info.get("id", 0),
+                    "apelido": atleta_info.get("apelido", ""),
+                    "posicao_id": atleta_info.get("posicao_id", 0),
+                    "preco": atleta_info.get("preco_num", 0.0),
+                    "status_id": atleta_info.get("status_id", 1),
+                    "scouts": atleta_info.get("scout", {}),
+                }
+                AtletaSchema(**atleta_dict)  # Validar com Pydantic
+            return True
+        except Exception as e:
+            print(f"[WARN] Validação falhou: {e}")
+            return False
+
+    @staticmethod
     def map_status_id(status_value) -> int:
         """Mapeia status_id de qualquer formato para o valor correto."""
         if isinstance(status_value, str):
@@ -93,7 +140,15 @@ class CartolaAPI:
             )
             response.raise_for_status()
             data = response.json()
-            CartolaAPI._save_backup(data)
+
+            # Validar dados com Pydantic
+            if not CartolaAPI._validate_atletas_data(data):
+                print("[WARN] Validação dos dados da API falhou. Usando cache local...")
+                data = CartolaAPI._load_backup()
+                if data is None:
+                    raise RuntimeError("Dados da API inválidos e nenhum backup disponível.")
+            else:
+                CartolaAPI._save_backup(data)
 
         except Exception as e:
             print(f"[WARN] Falha na API: {e}. Tentando carregar backup...")

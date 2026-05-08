@@ -26,6 +26,8 @@ if 'df_atletas' not in st.session_state:
     st.session_state['df_atletas'] = None
 if 'last_sync' not in st.session_state:
     st.session_state['last_sync'] = None
+if 'timestamp_treino' not in st.session_state:
+    st.session_state['timestamp_treino'] = None
 
 # Sidebar com filtros
 with st.sidebar:
@@ -38,8 +40,11 @@ with st.sidebar:
             try:
                 conn = st.connection("supabase_db", type=SupabaseDB)
                 df_probables = conn.get_atletas_provaveis()
+                # Buscar timestamp_treino
+                timestamp_treino = conn.get_timestamp_treino()
                 st.session_state['df_atletas'] = df_probables
                 st.session_state['last_sync'] = datetime.now()
+                st.session_state['timestamp_treino'] = timestamp_treino
                 st.success(f"✅ Sincronizado! {len(df_probables)} atletas prováveis")
             except Exception as e:
                 st.error(f"❌ Erro ao sincronizar: {e}")
@@ -57,6 +62,15 @@ with st.sidebar:
     # Mostrar último sync
     if st.session_state['last_sync']:
         st.caption(f"Última sincronização: {st.session_state['last_sync'].strftime('%H:%M:%S')}")
+    
+    # Exibir timestamp_treino
+    if st.session_state['timestamp_treino']:
+        from datetime import datetime
+        try:
+            dt = datetime.fromisoformat(st.session_state['timestamp_treino'])
+            st.caption(f"Dados treinados em: {dt.strftime('%d/%m/%Y %H:%M')}")
+        except:
+            st.caption(f"Dados treinados em: {st.session_state['timestamp_treino']}")
     
     st.divider()
     
@@ -135,6 +149,9 @@ if st.session_state['df_atletas'] is not None and len(st.session_state['df_atlet
                 # Calcular totais
                 total_custo = escalacao['preco'].sum()
                 total_xp = escalacao['xp_previsto'].sum()
+                if 'capitao' in escalacao.columns and escalacao['capitao'].any():
+                    capitao_xp = escalacao.loc[escalacao['capitao'], 'xp_previsto'].iloc[0]
+                    total_xp += capitao_xp  # Dobrar o XP do capitão
                 gasto_percentual = (total_custo / verba) * 100
                 
                 # Exibir resumo
@@ -149,17 +166,27 @@ if st.session_state['df_atletas'] is not None and len(st.session_state['df_atlet
                 # Tabela de Escalação
                 escalacao_display = escalacao.copy()
                 escalacao_display['posicao_nome'] = escalacao_display['posicao_id'].apply(map_posicao)
+                escalacao_display['capitao_emoji'] = escalacao_display['capitao'].apply(lambda x: '⭐' if x else '')
                 st.dataframe(
-                    escalacao_display[['apelido', 'posicao_nome', 'preco', 'xp_previsto']],
+                    escalacao_display[['capitao_emoji', 'apelido', 'posicao_nome', 'preco', 'xp_previsto']],
                     use_container_width=True,
                     hide_index=True,
                     column_config={
+                        "capitao_emoji": st.column_config.TextColumn("Capitão"),
                         "apelido": st.column_config.TextColumn("🎯 Jogador"),
                         "posicao_nome": st.column_config.TextColumn("📍 Posição"),
                         "preco": st.column_config.NumberColumn("💰 Preço", format="R$ %.2f"),
                         "xp_previsto": st.column_config.NumberColumn("⭐ XP Previsto", format="%.2f")
                     }
                 )
+                
+                # Rodapé com totais
+                st.markdown("---")
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown(f"**💰 Custo Total:** R$ {total_custo:.2f}")
+                with col2:
+                    st.markdown(f"**⭐ XP Total (com Capitão):** {total_xp:.2f}")
                 
                 # Botão para exportar
                 csv = escalacao_display.to_csv(index=False)

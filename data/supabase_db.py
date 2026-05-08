@@ -58,11 +58,20 @@ class SupabaseDB(BaseConnection):
     def get_previsoes(self):
         """
         Busca todas as previsões da tabela 'previsoes'.
-        Retorna um DataFrame com atleta_id e xp_previsto.
+        Retorna um DataFrame com atleta_id, xp_previsto, risco_atleta, timestamp_treino.
         """
-        response = self.client.table('previsoes').select('atleta_id, xp_previsto').execute()
+        response = self.client.table('previsoes').select('atleta_id, xp_previsto, risco_atleta, timestamp_treino').execute()
         df = pd.DataFrame(response.data)
         return df
+    
+    def get_timestamp_treino(self):
+        """
+        Busca o timestamp_treino mais recente da tabela 'previsoes'.
+        """
+        response = self.client.table('previsoes').select('timestamp_treino').order('timestamp_treino', desc=True).limit(1).execute()
+        if response.data:
+            return response.data[0]['timestamp_treino']
+        return None
     
     def get_todos_atletas(self):
         """

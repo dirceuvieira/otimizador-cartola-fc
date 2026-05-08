@@ -8,6 +8,7 @@ from sklearn.ensemble import RandomForestRegressor
 import joblib
 from supabase import create_client
 from data.cartola_api import CartolaAPI
+from datetime import datetime
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
@@ -259,10 +260,10 @@ def compute_rolling_features(df: pd.DataFrame) -> pd.DataFrame:
 
     rolled = df.groupby("atleta_id")["pontos"].rolling(window=5, min_periods=1)
     media_movel = rolled.mean().reset_index(level=0, drop=True)
-    consistencia = rolled.std(ddof=0).fillna(0).reset_index(level=0, drop=True)
+    indice_risco = rolled.std(ddof=0).fillna(0).reset_index(level=0, drop=True)
 
     df["media_movel"] = media_movel.shift(1)
-    df["consistencia"] = consistencia.shift(1).fillna(0)
+    df["indice_risco"] = indice_risco.shift(1).fillna(0)
     return df
 
 
@@ -271,7 +272,7 @@ def prepare_training_data(df_hist: pd.DataFrame) -> pd.DataFrame:
     df = add_engineered_features(df, df_hist)
     required = [
         "media_movel",
-        "consistencia",
+        "indice_risco",
         "preco",
         "posicao_id",
         "mando_campo",
@@ -289,7 +290,7 @@ def prepare_training_data(df_hist: pd.DataFrame) -> pd.DataFrame:
     df["posicao_id"] = pd.to_numeric(df["posicao_id"], errors="coerce").fillna(0).astype(int)
     df["mando_campo"] = pd.to_numeric(df["mando_campo"], errors="coerce").fillna(0).astype(int)
     df["media_movel"] = df["media_movel"].fillna(0)
-    df["consistencia"] = df["consistencia"].fillna(0)
+    df["indice_risco"] = df["indice_risco"].fillna(0)
     df["pontos"] = pd.to_numeric(df["pontos"], errors="coerce").fillna(0)
     df["scouts_cedidos_adv"] = pd.to_numeric(df["scouts_cedidos_adv"], errors="coerce").fillna(0)
     df["forca_mandante"] = pd.to_numeric(df["forca_mandante"], errors="coerce").fillna(1.0)
@@ -309,12 +310,12 @@ def build_prediction_dataset(df_hist: pd.DataFrame, df_market: pd.DataFrame, df_
     for atleta_id in df_hist["atleta_id"].unique():
         pontos = df_hist[df_hist["atleta_id"] == atleta_id]["pontos"]
         media_movel = pontos.tail(5).mean()
-        consistencia = pontos.tail(5).std(ddof=0) if len(pontos.tail(5)) > 1 else 0
+        indice_risco = pontos.tail(5).std(ddof=0) if len(pontos.tail(5)) > 1 else 0
         
         history_features_list.append({
             "atleta_id": atleta_id,
             "media_movel": media_movel,
-            "consistencia": consistencia if not pd.isna(consistencia) else 0,
+            "indice_risco": indice_risco if not pd.isna(indice_risco) else 0,
         })
     
     history_features = pd.DataFrame(history_features_list)
@@ -333,13 +334,14 @@ def build_prediction_dataset(df_hist: pd.DataFrame, df_market: pd.DataFrame, df_
 
     df = df_market.merge(history_features, how="left", on="atleta_id")
     df["media_movel"] = df["media_movel"].fillna(0)
-    df["consistencia"] = df["consistencia"].fillna(0)
+    df["indice_risco"] = df["indice_risco"].fillna(0)
     return df
 
 
 def train_model(df_train: pd.DataFrame) -> RandomForestRegressor:
     feature_cols = [
         "media_movel",
+        "indice_risco",
         "preco",
         "posicao_id",
         "mando_campo",
@@ -392,7 +394,10 @@ def upsert_athletes(client, df_market: pd.DataFrame) -> None:
 
 def upsert_predictions(client, df_preds: pd.DataFrame) -> None:
     """Salva previsões na tabela previsoes"""
-    payload = df_preds[["atleta_id", "xp_previsto"]].to_dict(orient="records")
+    timestamp_treino = datetime.now().isoformat()
+    df_preds["risco_atleta"] = df_preds["indice_risco"]
+    df_preds["timestamp_treino"] = timestamp_treino
+    payload = df_preds[["atleta_id", "xp_previsto", "risco_atleta", "timestamp_treino"]].to_dict(orient="records")
     client.table("previsoes").upsert(payload).execute()
 
 
@@ -440,6 +445,7 @@ def main():
     log("Gerando xp_previsto para atletas prováveis")
     feature_cols = [
         "media_movel",
+        "indice_risco",
         "preco",
         "posicao_id",
         "mando_campo",
