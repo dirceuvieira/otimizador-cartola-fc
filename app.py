@@ -4,6 +4,20 @@ from datetime import datetime
 from data.supabase_db import SupabaseDB
 from core.optimizer import otimizar_escalacao
 
+# Mapeamento de posição
+POSICAO_MAP = {
+    1: "1 - GOL",
+    2: "2 - LAT",
+    3: "3 - ZAG",
+    4: "4 - MEI",
+    5: "5 - ATA",
+    6: "6 - TEC",
+}
+
+def map_posicao(posicao_id):
+    """Converte posicao_id para nome legível"""
+    return POSICAO_MAP.get(int(posicao_id), str(posicao_id))
+
 st.set_page_config(page_title="Cartola FC Optimizer", page_icon="⚽", layout="wide")
 st.title("⚽ Otimizador Cartola FC - Estilo Brasfoot")
 
@@ -90,15 +104,16 @@ if st.session_state['df_atletas'] is not None and len(st.session_state['df_atlet
     
     # Preparar dataframe para exibição
     df_display = df.copy()
+    df_display['posicao_nome'] = df_display['posicao_id'].apply(map_posicao)
     df_display = df_display.sort_values('xp_previsto', ascending=False)
     
     st.dataframe(
-        df_display[['apelido', 'posicao_id', 'preco', 'media_num', 'xp_previsto']],
+        df_display[['apelido', 'posicao_nome', 'preco', 'media_num', 'xp_previsto']],
         use_container_width=True,
         hide_index=True,
         column_config={
             "apelido": st.column_config.TextColumn("🎯 Jogador"),
-            "posicao_id": st.column_config.NumberColumn("📍 Posição"),
+            "posicao_nome": st.column_config.TextColumn("📍 Posição"),
             "preco": st.column_config.NumberColumn("💰 Preço", format="R$ %.2f"),
             "media_num": st.column_config.NumberColumn("📈 Média", format="%.2f"),
             "xp_previsto": st.column_config.NumberColumn("⭐ XP Previsto", format="%.2f")
@@ -133,13 +148,14 @@ if st.session_state['df_atletas'] is not None and len(st.session_state['df_atlet
                 
                 # Tabela de Escalação
                 escalacao_display = escalacao.copy()
+                escalacao_display['posicao_nome'] = escalacao_display['posicao_id'].apply(map_posicao)
                 st.dataframe(
-                    escalacao_display[['apelido', 'posicao_id', 'preco', 'xp_previsto']],
+                    escalacao_display[['apelido', 'posicao_nome', 'preco', 'xp_previsto']],
                     use_container_width=True,
                     hide_index=True,
                     column_config={
                         "apelido": st.column_config.TextColumn("🎯 Jogador"),
-                        "posicao_id": st.column_config.NumberColumn("📍 Posição"),
+                        "posicao_nome": st.column_config.TextColumn("📍 Posição"),
                         "preco": st.column_config.NumberColumn("💰 Preço", format="R$ %.2f"),
                         "xp_previsto": st.column_config.NumberColumn("⭐ XP Previsto", format="%.2f")
                     }
