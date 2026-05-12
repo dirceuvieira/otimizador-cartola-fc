@@ -399,6 +399,119 @@ class CartolaAPI:
             raise RuntimeError(f"Erro ao buscar partidas: {e}")
 
     @staticmethod
+    def get_rodada_atual() -> Optional[int]:
+        """Retorna a última rodada disponível na API de mercado."""
+        try:
+            response = requests.get(
+                f"{CartolaAPI.BASE_URL}/atletas/mercado",
+                headers=CartolaAPI._get_headers(),
+                timeout=CartolaAPI.TIMEOUT,
+            )
+            response.raise_for_status()
+            data = response.json()
+            rodada_id = None
+            if isinstance(data, dict):
+                rodada_id = data.get("rodada_id") or data.get("rodadaAtual") or data.get("rodada_atual")
+            return int(rodada_id) if rodada_id is not None else None
+        except Exception as e:
+            print(f"[WARN] Erro ao buscar rodada atual: {e}")
+            return None
+
+    @staticmethod
+    def get_pontuados_by_rodada(rodada: int) -> pd.DataFrame:
+        """Busca os atletas pontuados de uma rodada específica."""
+        if rodada is None or rodada <= 0:
+            return pd.DataFrame()
+
+        try:
+            response = requests.get(
+                f"{CartolaAPI.BASE_URL}/atletas/pontuados/{rodada}",
+                headers=CartolaAPI._get_headers(),
+                timeout=CartolaAPI.TIMEOUT,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            if isinstance(data, dict) and "atletas" in data:
+                atletas_data = data["atletas"]
+            else:
+                atletas_data = data
+
+            rows = []
+            if isinstance(atletas_data, dict):
+                for atleta_id, atleta_info in atletas_data.items():
+                    if not isinstance(atleta_info, dict):
+                        continue
+
+                    atleta_id_int = int(atleta_info.get("atleta_id") or atleta_info.get("id") or atleta_id)
+                    pontos = atleta_info.get("pontuacao")
+                    if pontos is None:
+                        pontos = atleta_info.get("pontos") or atleta_info.get("pontos_num")
+                    if pontos is None:
+                        continue
+
+                    rows.append(
+                        {
+                            "atleta_id": atleta_id_int,
+                            "rodada": int(rodada),
+                            "pontos": float(pontos),
+                        }
+                    )
+            elif isinstance(atletas_data, list):
+                for atleta_info in atletas_data:
+                    if not isinstance(atleta_info, dict):
+                        continue
+
+                    atleta_id_int = int(atleta_info.get("atleta_id") or atleta_info.get("id", 0))
+                    pontos = atleta_info.get("pontuacao")
+                    if pontos is None:
+                        pontos = atleta_info.get("pontos") or atleta_info.get("pontos_num")
+                    if pontos is None:
+                        continue
+
+                    rows.append(
+                        {
+                            "atleta_id": atleta_id_int,
+                            "rodada": int(rodada),
+                            "pontos": float(pontos),
+                        }
+                    )
+
+            return pd.DataFrame(rows)
+        except Exception as e:
+            print(f"[WARN] Erro ao buscar pontuados da rodada {rodada}: {e}")
+            return pd.DataFrame()
+
+    @staticmethod
+    def get_latest_round_results(atleta_ids: list[int], limite: int = 100) -> pd.DataFrame:
+        """Busca o resultado mais recente disponível para cada atleta."""
+        rows = []
+        processed_ids = set()
+
+        for atleta_id in atleta_ids:
+            if atleta_id in processed_ids:
+                continue
+            processed_ids.add(atleta_id)
+
+            df_hist = CartolaAPI.get_scouts_historico(atleta_id, limite=limite)
+            if df_hist.empty or "rodada" not in df_hist.columns or "pontos" not in df_hist.columns:
+                continue
+
+            df_hist["rodada"] = pd.to_numeric(df_hist["rodada"], errors="coerce").fillna(0).astype(int)
+            df_hist["pontos"] = pd.to_numeric(df_hist["pontos"], errors="coerce").fillna(0.0)
+            latest = df_hist.loc[df_hist["rodada"].idxmax()]
+
+            rows.append(
+                {
+                    "atleta_id": atleta_id,
+                    "rodada": int(latest["rodada"]),
+                    "pontos": float(latest["pontos"]),
+                }
+            )
+
+        return pd.DataFrame(rows)
+
+    @staticmethod
     def get_scouts_historico(atleta_id: int, limite: int = 100) -> pd.DataFrame:
         """
         Busca histórico de scouts para um atleta específico.
