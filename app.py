@@ -1,7 +1,14 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-from data.supabase_db import SupabaseDB
+
+from adapters.supabase_repository import (
+    SupabaseAthleteRepository,
+    SupabasePredictionRepository,
+)
+from application.use_cases.get_all_atletas_use_case import GetAllAtletasUseCase
+from application.use_cases.get_probable_atletas_use_case import GetProbableAtletasUseCase
+from application.use_cases.get_timestamp_treino_use_case import GetTimestampTreinoUseCase
 from core.optimizer import otimizar_escalacao
 
 # Mapeamento de posição
@@ -38,10 +45,14 @@ with st.sidebar:
     with col1:
         if st.button("🔄 Sincronizar", use_container_width=True, help="Busca dados frescos do Supabase"):
             try:
-                conn = st.connection("supabase_db", type=SupabaseDB)
-                df_probables = conn.get_atletas_provaveis()
-                # Buscar timestamp_treino
-                timestamp_treino = conn.get_timestamp_treino()
+                athlete_repo = SupabaseAthleteRepository()
+                prediction_repo = SupabasePredictionRepository()
+                get_probable_atletas = GetProbableAtletasUseCase(athlete_repo)
+                get_timestamp_treino = GetTimestampTreinoUseCase(prediction_repo)
+
+                df_probables = get_probable_atletas.execute()
+                timestamp_treino = get_timestamp_treino.execute()
+
                 st.session_state['df_atletas'] = df_probables
                 st.session_state['last_sync'] = datetime.now()
                 st.session_state['timestamp_treino'] = timestamp_treino
@@ -52,8 +63,10 @@ with st.sidebar:
     with col2:
         if st.button("📊 Mercado", use_container_width=True, help="Ver todos os atletas"):
             try:
-                conn = st.connection("supabase_db", type=SupabaseDB)
-                df_all = conn.get_todos_atletas()
+                athlete_repo = SupabaseAthleteRepository()
+                get_all_atletas = GetAllAtletasUseCase(athlete_repo)
+                df_all = get_all_atletas.execute()
+                st.session_state['df_atletas'] = df_all
                 st.session_state['view_all'] = True
                 st.rerun()
             except Exception as e:
