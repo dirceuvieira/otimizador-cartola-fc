@@ -62,6 +62,33 @@ class SupabaseAthleteRepository(AthleteRepository):
         df = pd.DataFrame(response.data or [])
         return self._merge_predictions(df)
 
+    def upsert_athletes(self, df_market: pd.DataFrame) -> None:
+        cols_to_upsert = [
+            "atleta_id",
+            "apelido",
+            "posicao_id",
+            "preco",
+            "status_id",
+            "media_num",
+            "clube_nome",
+            "confronto",
+        ]
+        df_athletes = df_market[[col for col in cols_to_upsert if col in df_market.columns]].copy()
+
+        df_athletes["atleta_id"] = df_athletes["atleta_id"].astype(int)
+        df_athletes["posicao_id"] = df_athletes["posicao_id"].astype(int)
+        df_athletes["status_id"] = df_athletes["status_id"].astype(int)
+        df_athletes["preco"] = pd.to_numeric(df_athletes["preco"], errors="coerce").fillna(0)
+        df_athletes["media_num"] = pd.to_numeric(df_athletes["media_num"], errors="coerce").fillna(0)
+        df_athletes["clube_nome"] = df_athletes["clube_nome"].fillna("")
+        df_athletes["confronto"] = df_athletes["confronto"].fillna("")
+
+        payload = df_athletes.to_dict(orient="records")
+        batch_size = 1000
+        for i in range(0, len(payload), batch_size):
+            batch = payload[i : i + batch_size]
+            self.client.table("atletas").upsert(batch).execute()
+
 
 class SupabasePredictionRepository(PredictionRepository):
     def __init__(self, client=None):
@@ -84,3 +111,17 @@ class SupabasePredictionRepository(PredictionRepository):
             "atleta_id": atleta_id,
             "xp_previsto": xp_previsto,
         }).execute()
+
+    def save_predictions(self, df_preds: pd.DataFrame) -> None:
+        if df_preds.empty:
+            return
+
+        df_preds = df_preds.copy()
+        df_preds["risco_atleta"] = df_preds.get("indice_risco", 0.0)
+        df_preds["timestamp_treino"] = pd.Timestamp.now().isoformat()
+        payload = df_preds[["atleta_id", "xp_previsto", "risco_atleta", "timestamp_treino"]].to_dict(orient="records")
+
+        batch_size = 1000
+        for i in range(0, len(payload), batch_size):
+            batch = payload[i : i + batch_size]
+            self.client.table("previsoes").upsert(batch).execute()

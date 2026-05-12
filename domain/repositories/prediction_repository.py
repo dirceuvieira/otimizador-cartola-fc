@@ -19,3 +19,8 @@ class PredictionRepository(ABC):
     def save_previsao(self, atleta_id: int, xp_previsto: float) -> None:
         """Salva ou atualiza a previsão de um atleta."""
         raise NotImplementedError
+
+    @abstractmethod
+    def save_predictions(self, df_preds: pd.DataFrame) -> None:
+        """Salva ou atualiza previsões em lote."""
+        raise NotImplementedError

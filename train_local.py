@@ -409,66 +409,21 @@ def save_model(model) -> None:
 
 
 def main():
+    from adapters.supabase_repository import SupabaseAthleteRepository, SupabasePredictionRepository
+    from application.use_cases.train_model_use_case import TrainModelUseCase
+
     log("Iniciando pipeline de treinamento local")
 
-    log("Carregando dados históricos")
-    df_hist = load_csv_or_none("historico_scouts.csv")
-    
-    if df_hist is None:
-        log("Histórico não encontrado localmente. Iniciando download via API...")
-        df_hist = download_and_save_historico()
-    
-    log("Carregando dados do mercado atual")
-    df_market = load_mercado_data()
-    log("Carregando partidas da rodada atual")
-    df_partidas = CartolaAPI.get_partidas()
+    athlete_repo = SupabaseAthleteRepository()
+    prediction_repo = SupabasePredictionRepository()
+    use_case = TrainModelUseCase(athlete_repo, prediction_repo)
 
-    log("Normalizando dados e preenchendo valores nulos")
-    df_hist = df_hist.fillna(0)
-    df_market = df_market.fillna(0)
+    model, df_probables = use_case.execute()
 
-    log("Preparando dados de treinamento")
-    df_train = prepare_training_data(df_hist)
-    if df_train.empty:
-        raise ValueError("Dados insuficientes para treinar o modelo")
-
-    log("Treinando RandomForestRegressor")
-    model = train_model(df_train)
-    save_model(model)
-    log(f"Modelo salvo em {MODEL_PATH}")
-
-    log("Construindo dataset de predição para atletas prováveis")
-    df_predict = build_prediction_dataset(df_hist, df_market, df_partidas)
-    df_probables = df_predict[df_predict["status_id"] == 7].copy()
     if df_probables.empty:
         log("Nenhum atleta provável encontrado para predição")
-        return
-
-    log("Gerando xp_previsto para atletas prováveis")
-    feature_cols = [
-        "media_movel",
-        "indice_risco",
-        "preco",
-        "posicao_id",
-        "mando_campo",
-        "scouts_cedidos_adv",
-        "forca_mandante",
-        "finalizacoes_acumuladas",
-    ]
-    df_probables["xp_previsto"] = model.predict(df_probables[feature_cols].astype(float))
-
-    log("Persistindo dados no Supabase")
-    client = create_supabase_client()
-    
-    # Salvar atletas do mercado
-    log("Salvando dados dos atletas na tabela 'atletas'")
-    upsert_athletes(client, df_market)
-    
-    # Salvar previsões
-    log("Salvando previsões na tabela 'previsoes'")
-    upsert_predictions(client, df_probables)
-
-    log("Treinamento local concluído com sucesso")
+    else:
+        log(f"Treinamento local concluído com sucesso. {len(df_probables)} previsões geradas.")
 
 
 if __name__ == "__main__":
