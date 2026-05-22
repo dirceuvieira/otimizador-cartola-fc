@@ -360,6 +360,106 @@ class CartolaAPI:
             return {}
 
     @staticmethod
+    def get_team_stats(clube_id: int, metric: str = 'defense', rounds: int = 5) -> float:
+        """
+        Calculate a team-level statistic averaged over the last N rounds of historical data.
+        
+        Parameters:
+            clube_id (int): The team ID to calculate stats for.
+            metric (str): One of:
+                - 'defense': Average goals conceded (gols sofridos / GS scout) by this team
+                - 'offense': Average goals scored (gols marcados / GM scout) by this team
+                - 'finalizacoes': Average shots conceded (finalizacoes sofridas) by this team
+            rounds (int): Number of past rounds to include in average (default 5). 
+                         Uses available rounds if fewer than N rounds exist.
+        
+        Returns:
+            float: The average metric value across available rounds. If insufficient data,
+                   returns the global average across all teams as fallback. Returns 0.0 if no data.
+        
+        Examples:
+            >>> api = CartolaAPI()
+            >>> defense_avg = api.get_team_stats(287, metric='defense', rounds=5)
+            >>> # Returns avg goals conceded by team 287 over last 5 rounds, e.g. 1.2
+            >>> offense_avg = api.get_team_stats(287, metric='offense', rounds=5)
+            >>> # Returns avg goals scored by team 287 over last 5 rounds, e.g. 1.8
+            >>> shots_avg = api.get_team_stats(287, metric='finalizacoes', rounds=5)
+            >>> # Returns avg shots conceded by team 287 over last 5 rounds, e.g. 4.5
+        """
+        try:
+            # Attempt to load historical per-round athlete data via existing helper (if available)
+            # The codebase stores historical data as CSV in data/historico_scouts.csv or can call API endpoints per rodada.
+            hist_path = Path(__file__).parent.parent / "data" / "historico_scouts.csv"
+            df_hist = None
+            if hist_path.exists():
+                df_hist = pd.read_csv(hist_path)
+            else:
+                # Fallback: try to collect last `rounds` via get_mercado_data or specialized endpoints if available
+                df_hist = None
+
+            if df_hist is None or df_hist.empty:
+                # No historical data available locally: return 0.0 as safe default
+                return 0.0
+
+            round_col = None
+            for col in ("rodada", "rodada_id"):
+                if col in df_hist.columns:
+                    round_col = col
+                    break
+            if round_col is None:
+                return 0.0
+
+            df_hist[round_col] = pd.to_numeric(df_hist[round_col], errors="coerce").fillna(0).astype(int)
+            last_round = int(df_hist[round_col].max())
+            recent = df_hist[df_hist[round_col] > last_round - rounds]
+            # Filter by team
+            team_rows = recent[recent.get("clube_id") == int(clube_id)]
+
+            def compute_metric(df_team: pd.DataFrame) -> float:
+                if metric == 'defense':
+                    # gols sofridos is represented as scout_GS or similar; attempt common names
+                    cols = [c for c in df_team.columns if c.startswith('scout_G') or c.lower().find('sofr') != -1]
+                    # try scout_GS column
+                    if 'scout_GS' in df_team.columns:
+                        return df_team['scout_GS'].astype(float).mean()
+                    # fallback to 'gols_sofridos' if present
+                    if 'gols_sofridos' in df_team.columns:
+                        return df_team['gols_sofridos'].astype(float).mean()
+                    # otherwise, try using pontos as proxy (not ideal)
+                    return 0.0
+                if metric == 'offense':
+                    if 'scout_GM' in df_team.columns:
+                        return df_team['scout_GM'].astype(float).mean()
+                    if 'gols_marcados' in df_team.columns:
+                        return df_team['gols_marcados'].astype(float).mean()
+                    return 0.0
+                if metric == 'finalizacoes':
+                    # finalizacoes scouts often as FS, FF, FD summed; try common patterns
+                    cols = [c for c in df_team.columns if c.startswith('scout_F')]
+                    if cols:
+                        return df_team[cols].sum(axis=1).astype(float).mean()
+                    if 'finalizacoes_sofridas' in df_team.columns:
+                        return df_team['finalizacoes_sofridas'].astype(float).mean()
+                    return 0.0
+                return 0.0
+
+            if not team_rows.empty:
+                return float(compute_metric(team_rows))
+
+            # If no team rows found, compute global average across all teams as fallback
+            if recent.empty:
+                return 0.0
+
+            # group by team and compute metric mean
+            grouped = recent.groupby('clube_id').apply(lambda g: compute_metric(g))
+            if grouped.empty:
+                return 0.0
+            return float(grouped.mean())
+
+        except Exception as e:
+            print(f"[WARN] get_team_stats failed: {e}")
+            return 0.0
+
     def get_partidas() -> pd.DataFrame:
         """
         Busca dados das partidas da rodada atual.

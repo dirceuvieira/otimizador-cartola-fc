@@ -36,6 +36,17 @@ O sistema deve operar sobre DataFrames do Pandas com a seguinte estrutura mínim
 | `status_id` | int | Filtro (7 = Provável) |
 | `xp_previsto`| float | Pontuação prevista pela IA local |
 | `media_num` | float | Média histórica de pontos |
+| `defesa_adversaria` | float | Média de gols sofridos pelo adversário (últimos 5 rounds) |
+| `ataque_adversario` | float | Média de gols marcados pelo adversário (últimos 5 rounds) |
+| `finalizacoes_sofridas_adv` | float | Média de finalizações sofridas pelo adversário (últimos 5 rounds) |
+
+### 3.1 Novas Features de Matchup (Contexto de Adversário)
+O sistema agora enriquece cada atleta com contexto sobre o adversário da próxima rodada:
+- **defesa_adversaria**: Força defensiva do oponente (gols concedidos). Baixo = defesa fraca (bom para atacantes).
+- **ataque_adversario**: Força ofensiva do oponente (gols marcados). Alto = pressão ofensiva (desafio para defensores).
+- **finalizacoes_sofridas_adv**: Pressão defensiva do oponente (finalizações concedidas). Alto = pressão defensiva.
+
+Essas features são calculadas a partir de dados dos últimos 5 rounds completados e persistidas na tabela `features_matchup` do Supabase para auditoria e análise histórica.
 
 ## 4. Lógica do Otimizador (The Solver)
 Implementar a função de otimização no arquivo `core/optimizer.py` seguindo a lógica de **Programação Linear/Mochila**:

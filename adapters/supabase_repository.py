@@ -125,3 +125,51 @@ class SupabasePredictionRepository(PredictionRepository):
         for i in range(0, len(payload), batch_size):
             batch = payload[i : i + batch_size]
             self.client.table("previsoes").upsert(batch).execute()
+
+    # --- Matchup features persistence and training log helpers ---
+    def upsert_matchup_features(self, df_features: pd.DataFrame) -> None:
+        """Batch upsert matchup features into features_matchup table."""
+        if df_features is None or df_features.empty:
+            return
+        df = df_features.copy()
+        # Ensure expected columns
+        cols = ["atleta_id", "rodada", "adversario_clube_id", "defesa_adversaria", "ataque_adversario", "finalizacoes_sofridas_adv", "timestamp_criacao"]
+        present = [c for c in cols if c in df.columns]
+        payload = df[present].to_dict(orient="records")
+        batch_size = 500
+        for i in range(0, len(payload), batch_size):
+            batch = payload[i : i + batch_size]
+            try:
+                self.client.table("features_matchup").upsert(batch).execute()
+            except Exception as e:
+                error_msg = str(e)
+                if "row-level security" in error_msg.lower() or "42501" in error_msg:
+                    print(f"[WARN] RLS policy bloqueou inserção em features_matchup. Verifique políticas no Supabase.")
+                    print(f"[WARN] Erro: {error_msg}")
+                else:
+                    print(f"[WARN] Erro ao upsert matchup features: {error_msg}")
+                # Continue com próximo batch mesmo se esse falhar
+                continue
+
+    def log_training_execution(self, rodada: int, total_atletas: int, total_features: int, status: str = "success", error_msg: str | None = None) -> None:
+        """Insert or upsert a training_log record."""
+        payload = {
+            "rodada": int(rodada),
+            "total_atletas": int(total_atletas),
+            "total_features_criadas": int(total_features),
+            "status": status,
+            "error_message": error_msg or None,
+        }
+        # Upsert by rodada and timestamp (simple approach: insert as new row)
+        try:
+            self.client.table("training_log").insert(payload).execute()
+        except Exception as e:
+            # Fallback to upsert if insert fails
+            try:
+                self.client.table("training_log").upsert(payload).execute()
+            except Exception as e2:
+                error_msg = str(e2)
+                if "row-level security" in error_msg.lower() or "42501" in error_msg:
+                    print(f"[WARN] RLS policy bloqueou inserção em training_log. Verifique políticas no Supabase.")
+                else:
+                    print(f"[WARN] Erro ao log training execution: {error_msg}")

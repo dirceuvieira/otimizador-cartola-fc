@@ -3,3 +3,9 @@
 __pycache__/
 *.pyc
 /recomendacoes
+/.claude
+/.cline
+/.clinerules
+/.cursor
+/.gemini
+/.github

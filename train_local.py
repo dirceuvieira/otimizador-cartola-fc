@@ -141,6 +141,177 @@ def build_team_position_avg(df_hist: pd.DataFrame, last_n_rounds: int = 3) -> pd
     return avg
 
 
+def build_team_stats_cache(df_hist: pd.DataFrame, rounds: int = 5) -> pd.DataFrame:
+    """
+    Pre-calculate team-level performance metrics aggregated over the last N rounds for efficiency.
+    
+    This function processes historical athlete performance data to compute team-wide statistics.
+    Each team receives three average metrics computed from scout data: offensive output (goals scored),
+    defensive vulnerability (goals conceded), and defensive pressure (shots conceded).
+    
+    Parameters:
+        df_hist (pd.DataFrame): Historical athlete data with columns including 'clube_id', 'rodada'/'rodada_id',
+                               and scout columns starting with 'scout_GM', 'scout_GS', 'scout_F*'
+        rounds (int): Number of recent completed rounds to include in averages. Uses available rounds
+                     if fewer than N rounds exist. Default: 5
+    
+    Returns:
+        pd.DataFrame: DataFrame with aggregated team metrics:
+            - clube_id (int): Team ID
+            - gols_marcados_avg (float): Average goals scored per round (offensive strength)
+            - gols_sofridos_avg (float): Average goals conceded per round (defensive strength)
+            - finalizacoes_sofridas_avg (float): Average shots conceded per round (defensive pressure)
+        
+        The returned DataFrame has an 'attrs' dictionary containing global fallback values:
+            - global_marcados, global_sofridos, global_finaliz
+    
+    Example:
+        >>> df_hist = load_csv("historico_scouts.csv")
+        >>> cache = build_team_stats_cache(df_hist, rounds=5)
+        >>> # cache has one row per team with 3-round averages
+        >>> print(cache.head())
+        #    clube_id  gols_marcados_avg  gols_sofridos_avg  finalizacoes_sofridas_avg
+        # 0       287                1.8                1.2                       4.5
+        # 1       264                1.9                1.3                       4.2
+    """
+    round_col = get_round_column(df_hist)
+    if round_col is None or "clube_id" not in df_hist.columns:
+        return pd.DataFrame(columns=["clube_id", "gols_marcados_avg", "gols_sofridos_avg", "finalizacoes_sofridas_avg"])
+
+    hist = df_hist.copy()
+    hist[round_col] = pd.to_numeric(hist[round_col], errors="coerce").fillna(0).astype(int)
+    hist = hist.dropna(subset=["clube_id"]).copy()
+    hist["clube_id"] = pd.to_numeric(hist["clube_id"], errors="coerce").fillna(0).astype(int)
+
+    last_round = int(hist[round_col].max())
+    recent = hist[hist[round_col] > last_round - rounds]
+
+    # Helper to extract goal/shot columns if present
+    def safe_mean(df_team: pd.DataFrame, possible_cols):
+        for c in possible_cols:
+            if c in df_team.columns:
+                try:
+                    return df_team[c].astype(float).mean()
+                except Exception:
+                    continue
+        return 0.0
+
+    records = []
+    for clube, group in recent.groupby("clube_id"):
+        gols_marcados = safe_mean(group, ["scout_GM", "gols_marcados", "gm"])
+        gols_sofridos = safe_mean(group, ["scout_GS", "gols_sofridos", "gs"])
+        # finalizacoes: sum of scout_F* columns per row
+        fcols = [c for c in group.columns if c.startswith("scout_F")]
+        if fcols:
+            finalizacoes = group[fcols].sum(axis=1).astype(float).mean()
+        elif "finalizacoes_sofridas" in group.columns:
+            finalizacoes = group["finalizacoes_sofridas"].astype(float).mean()
+        else:
+            finalizacoes = 0.0
+
+        records.append({
+            "clube_id": int(clube),
+            "gols_marcados_avg": float(gols_marcados),
+            "gols_sofridos_avg": float(gols_sofridos),
+            "finalizacoes_sofridas_avg": float(finalizacoes),
+        })
+
+    df_stats = pd.DataFrame(records)
+
+    # Compute global averages for fallback
+    if not df_stats.empty:
+        global_marcados = df_stats["gols_marcados_avg"].mean()
+        global_sofridos = df_stats["gols_sofridos_avg"].mean()
+        global_finaliz = df_stats["finalizacoes_sofridas_avg"].mean()
+    else:
+        global_marcados = global_sofridos = global_finaliz = 0.0
+
+    df_stats["gols_marcados_avg"] = pd.to_numeric(df_stats["gols_marcados_avg"], errors="coerce").fillna(global_marcados)
+    df_stats["gols_sofridos_avg"] = pd.to_numeric(df_stats["gols_sofridos_avg"], errors="coerce").fillna(global_sofridos)
+    df_stats["finalizacoes_sofridas_avg"] = pd.to_numeric(df_stats["finalizacoes_sofridas_avg"], errors="coerce").fillna(global_finaliz)
+
+    # Attach globals as attributes for easy fallback
+    df_stats.attrs = {
+        "global_marcados": float(global_marcados),
+        "global_sofridos": float(global_sofridos),
+        "global_finaliz": float(global_finaliz),
+    }
+
+    return df_stats
+
+
+def add_matchup_features(df_market: pd.DataFrame, df_partidas: Optional[pd.DataFrame], team_stats_cache: pd.DataFrame) -> pd.DataFrame:
+    """
+    Enrich athlete dataset with opponent-aware features derived from team statistics.
+    
+    This function maps each athlete to their upcoming opponent and adds three derived features 
+    representing the opponent's recent performance: defensive vulnerability, offensive strength,
+    and defensive pressure.
+    
+    Parameters:
+        df_market (pd.DataFrame): Current athlete market data with columns 'atleta_id', 'clube_id', 'posicao_id', etc.
+        df_partidas (Optional[pd.DataFrame]): Match data mapping teams to their opponents with columns 'time_casa_id',
+                                             'time_visitante_id'. If None or empty, all athletes use global averages.
+        team_stats_cache (pd.DataFrame): Pre-calculated team statistics from build_team_stats_cache() with columns
+                                        clube_id, gols_marcados_avg, gols_sofridos_avg, finalizacoes_sofridas_avg
+    
+    Returns:
+        pd.DataFrame: Input df_market enriched with three new columns:
+            - defesa_adversaria (float): Average goals conceded by opponent (lower = harder defense to score on)
+            - ataque_adversario (float): Average goals scored by opponent (higher = stronger offensive pressure)
+            - finalizacoes_sofridas_adv (float): Average shots conceded by opponent (higher = more defensive pressure)
+            - adversario_clube_id (int): Opponent team ID (0 if not found/mapped)
+    
+    Behavior:
+        - If an athlete's opponent is not found in df_partidas, uses global average for all three features
+        - If df_partidas is None/empty, all athletes use global averages
+        - All features are numeric, filled with global average as fallback (no NaN values)
+    
+    Example (before/after):
+        Before: atleta_id=1001, clube_id=287, posicao_id=5 (attacker), ...
+        After:  atleta_id=1001, clube_id=287, adversario_clube_id=264, 
+                defesa_adversaria=1.3, ataque_adversario=1.9, finalizacoes_sofridas_adv=4.2, ...
+    """
+    df = df_market.copy()
+    df = assign_opponent_club(df, df_partidas)
+
+    # Prepare stats dataframe for merge
+    if team_stats_cache is None or team_stats_cache.empty:
+        # Create an empty df with expected columns and global fallbacks
+        global_marcados = team_stats_cache.attrs.get("global_marcados") if hasattr(team_stats_cache, "attrs") else 0.0
+        global_sofridos = team_stats_cache.attrs.get("global_sofridos") if hasattr(team_stats_cache, "attrs") else 0.0
+        global_finaliz = team_stats_cache.attrs.get("global_finaliz") if hasattr(team_stats_cache, "attrs") else 0.0
+        df["defesa_adversaria"] = float(global_sofridos or 0.0)
+        df["ataque_adversario"] = float(global_marcados or 0.0)
+        df["finalizacoes_sofridas_adv"] = float(global_finaliz or 0.0)
+        return df
+
+    stats = team_stats_cache.rename(columns={
+        "clube_id": "adversario_clube_id",
+        "gols_marcados_avg": "ataque_adversario",
+        "gols_sofridos_avg": "defesa_adversaria",
+        "finalizacoes_sofridas_avg": "finalizacoes_sofridas_adv",
+    })
+
+    df = df.merge(stats[["adversario_clube_id", "ataque_adversario", "defesa_adversaria", "finalizacoes_sofridas_adv"]], on="adversario_clube_id", how="left")
+
+    # Fill with global averages if missing
+    global_marcados = team_stats_cache.attrs.get("global_marcados", 0.0)
+    global_sofridos = team_stats_cache.attrs.get("global_sofridos", 0.0)
+    global_finaliz = team_stats_cache.attrs.get("global_finaliz", 0.0)
+
+    df["defesa_adversaria"] = pd.to_numeric(df.get("defesa_adversaria", None), errors="coerce").fillna(global_sofridos)
+    df["ataque_adversario"] = pd.to_numeric(df.get("ataque_adversario", None), errors="coerce").fillna(global_marcados)
+    df["finalizacoes_sofridas_adv"] = pd.to_numeric(df.get("finalizacoes_sofridas_adv", None), errors="coerce").fillna(global_finaliz)
+
+    # Ensure numeric types
+    df["defesa_adversaria"] = df["defesa_adversaria"].astype(float)
+    df["ataque_adversario"] = df["ataque_adversario"].astype(float)
+    df["finalizacoes_sofridas_adv"] = df["finalizacoes_sofridas_adv"].astype(float)
+
+    return df
+
+
 def build_team_home_strength(df_hist: pd.DataFrame) -> pd.DataFrame:
     if "clube_id" not in df_hist.columns or "casa" not in df_hist.columns or "pontos" not in df_hist.columns:
         return pd.DataFrame(columns=["clube_id", "forca_mandante"])
@@ -165,20 +336,35 @@ def assign_opponent_club(df_market: pd.DataFrame, df_partidas: pd.DataFrame) -> 
         df_market["casa"] = infer_mando_campo(df_market)
         return df_market
 
-    part_home = df_partidas[["time_casa_id", "time_visitante_id"]].rename(
-        columns={"time_casa_id": "clube_id", "time_visitante_id": "adversario_clube_id"}
-    )
-    part_home["casa"] = 1
-    part_away = df_partidas[["time_visitante_id", "time_casa_id"]].rename(
-        columns={"time_visitante_id": "clube_id", "time_casa_id": "adversario_clube_id"}
-    )
-    part_away["casa"] = 0
-    mapping = pd.concat([part_home, part_away], ignore_index=True)
+    try:
+        part_home = df_partidas[["time_casa_id", "time_visitante_id"]].rename(
+            columns={"time_casa_id": "clube_id", "time_visitante_id": "adversario_clube_id"}
+        )
+        part_home["casa"] = 1
+        part_away = df_partidas[["time_visitante_id", "time_casa_id"]].rename(
+            columns={"time_visitante_id": "clube_id", "time_casa_id": "adversario_clube_id"}
+        )
+        part_away["casa"] = 0
+        mapping = pd.concat([part_home, part_away], ignore_index=True)
 
-    df_market = df_market.copy()
-    df_market = df_market.merge(mapping, on="clube_id", how="left")
+        df_market = df_market.copy()
+        df_market = df_market.merge(mapping, on="clube_id", how="left")
+    except (KeyError, ValueError):
+        # If partidas data is malformed, fallback to basic setup
+        df_market = df_market.copy()
+        df_market["adversario_clube_id"] = 0
+        if "casa" not in df_market.columns:
+            df_market["casa"] = infer_mando_campo(df_market)
+        return df_market
+
+    # Ensure columns exist and fill missing values
+    if "adversario_clube_id" not in df_market.columns:
+        df_market["adversario_clube_id"] = 0
+    if "casa" not in df_market.columns:
+        df_market["casa"] = infer_mando_campo(df_market)
+
     df_market["adversario_clube_id"] = pd.to_numeric(df_market["adversario_clube_id"], errors="coerce").fillna(0).astype(int)
-    df_market["casa"] = pd.to_numeric(df_market["casa"], errors="coerce").fillna(0).astype(int)
+    df_market["casa"] = pd.to_numeric(df_market["casa"], errors="coerce").fillna(infer_mando_campo(df_market)).astype(int)
     return df_market
 
 
@@ -267,9 +453,26 @@ def compute_rolling_features(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def prepare_training_data(df_hist: pd.DataFrame) -> pd.DataFrame:
+def prepare_training_data(df_hist: pd.DataFrame, df_partidas: Optional[pd.DataFrame] = None) -> pd.DataFrame:
     df = compute_rolling_features(df_hist)
-    df = add_engineered_features(df, df_hist)
+    df = add_engineered_features(df, df_hist, df_partidas)
+    
+    # Add matchup features for training enrichment (optional - fallback to defaults if fails)
+    try:
+        team_stats_cache = build_team_stats_cache(df_hist, rounds=5)
+        df = add_matchup_features(df, df_partidas, team_stats_cache)
+    except Exception as e:
+        # Fallback: add default matchup features if enrichment fails
+        print(f"[WARN] Falha ao adicionar features de matchup: {e}. Usando valores padrão.")
+        df["defesa_adversaria"] = 0.0
+        df["ataque_adversario"] = 0.0
+        df["finalizacoes_sofridas_adv"] = 0.0
+    
+    # Ensure matchup features exist
+    for col in ["defesa_adversaria", "ataque_adversario", "finalizacoes_sofridas_adv"]:
+        if col not in df.columns:
+            df[col] = 0.0
+    
     required = [
         "media_movel",
         "indice_risco",
@@ -280,6 +483,9 @@ def prepare_training_data(df_hist: pd.DataFrame) -> pd.DataFrame:
         "scouts_cedidos_adv",
         "forca_mandante",
         "finalizacoes_acumuladas",
+        "defesa_adversaria",
+        "ataque_adversario",
+        "finalizacoes_sofridas_adv",
     ]
     for col in required:
         if col not in df.columns:
@@ -295,6 +501,9 @@ def prepare_training_data(df_hist: pd.DataFrame) -> pd.DataFrame:
     df["scouts_cedidos_adv"] = pd.to_numeric(df["scouts_cedidos_adv"], errors="coerce").fillna(0)
     df["forca_mandante"] = pd.to_numeric(df["forca_mandante"], errors="coerce").fillna(1.0)
     df["finalizacoes_acumuladas"] = pd.to_numeric(df["finalizacoes_acumuladas"], errors="coerce").fillna(0)
+    df["defesa_adversaria"] = pd.to_numeric(df["defesa_adversaria"], errors="coerce").fillna(0)
+    df["ataque_adversario"] = pd.to_numeric(df["ataque_adversario"], errors="coerce").fillna(0)
+    df["finalizacoes_sofridas_adv"] = pd.to_numeric(df["finalizacoes_sofridas_adv"], errors="coerce").fillna(0)
     return df
 
 
@@ -331,10 +540,28 @@ def build_prediction_dataset(df_hist: pd.DataFrame, df_market: pd.DataFrame, df_
     df_market["mando_campo"] = infer_mando_campo(df_market)
 
     df_market = add_engineered_features(df_market, df_hist, df_partidas)
+    
+    # Add matchup features for prediction enrichment (optional - fallback to defaults if fails)
+    try:
+        team_stats_cache = build_team_stats_cache(df_hist, rounds=5)
+        df_market = add_matchup_features(df_market, df_partidas, team_stats_cache)
+    except Exception as e:
+        # Fallback: add default matchup features if enrichment fails
+        print(f"[WARN] Falha ao adicionar features de matchup: {e}. Usando valores padrão.")
+        df_market["defesa_adversaria"] = 0.0
+        df_market["ataque_adversario"] = 0.0
+        df_market["finalizacoes_sofridas_adv"] = 0.0
 
     df = df_market.merge(history_features, how="left", on="atleta_id")
     df["media_movel"] = df["media_movel"].fillna(0)
     df["indice_risco"] = df["indice_risco"].fillna(0)
+    
+    # Ensure matchup features are numeric and filled
+    for col in ["defesa_adversaria", "ataque_adversario", "finalizacoes_sofridas_adv"]:
+        if col not in df.columns:
+            df[col] = 0.0
+        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+    
     return df
 
 
@@ -348,6 +575,9 @@ def train_model(df_train: pd.DataFrame) -> RandomForestRegressor:
         "scouts_cedidos_adv",
         "forca_mandante",
         "finalizacoes_acumuladas",
+        "defesa_adversaria",
+        "ataque_adversario",
+        "finalizacoes_sofridas_adv",
     ]
     X = df_train[feature_cols].astype(float)
     y = df_train["pontos"].astype(float)
